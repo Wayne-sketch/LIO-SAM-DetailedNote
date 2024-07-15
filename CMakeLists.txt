@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   # pcl library
   pcl_conversions
+  pcl_ros
   # msgs
   std_msgs
   sensor_msgs
@@ -27,6 +28,8 @@ find_package(OpenMP REQUIRED)
 find_package(PCL REQUIRED QUIET)
 find_package(OpenCV REQUIRED QUIET)
 find_package(GTSAM REQUIRED QUIET)
+
+# find_package(Boost REQUIRED COMPONENTS timer thread serialization chrono)
 
 add_message_files(
   DIRECTORY msg
@@ -50,7 +53,7 @@ generate_messages(
 
 catkin_package(
   INCLUDE_DIRS include
-  DEPENDS PCL GTSAM
+  DEPENDS PCL GTSAM EIGEN3 OpenCV
 
   CATKIN_DEPENDS
   std_msgs
@@ -94,10 +97,16 @@ add_dependencies(${PROJECT_NAME}_featureExtraction ${catkin_EXPORTED_TARGETS} ${
 target_link_libraries(${PROJECT_NAME}_featureExtraction ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # Mapping Optimization
-add_executable(${PROJECT_NAME}_mapOptmization src/mapOptmization.cpp)
+add_executable(${PROJECT_NAME}_mapOptmization src/mapOptmization.cpp src/myso3/myso3.hpp src/myso3/myso3.cpp)
 add_dependencies(${PROJECT_NAME}_mapOptmization ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(${PROJECT_NAME}_mapOptmization ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam)
+
+# # Mapping Optimization
+# add_executable(${PROJECT_NAME}_mapOptmization src/mapOptmization_balm.cpp)
+# add_dependencies(${PROJECT_NAME}_mapOptmization ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+# target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS})
+# target_link_libraries(${PROJECT_NAME}_mapOptmization ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam)
 
 # IMU Preintegration
 add_executable(${PROJECT_NAME}_imuPreintegration src/imuPreintegration.cpp)

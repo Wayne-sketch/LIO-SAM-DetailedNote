@@ -118,6 +118,8 @@ public:
     float surfThreshold;
     int edgeFeatureMinValidNum;
     int surfFeatureMinValidNum;
+    int surfPickedThreshold;
+    int cornerPickedThreshold;
 
     // voxel filter paprams
     float odometrySurfLeafSize;
@@ -151,6 +153,10 @@ public:
     float globalMapVisualizationPoseDensity;
     float globalMapVisualizationLeafSize;
 
+    //强制跳过ring time检测过程
+    bool has_ring;
+    float ang_bottom;
+    float ang_res_y;
     ParamServer()
     {
         nh.param<std::string>("/robot_id", robot_id, "roboat");
@@ -161,6 +167,12 @@ public:
         nh.param<std::string>("lio_sam/imuTopic", imuTopic, "imu_correct");
         nh.param<std::string>("lio_sam/odomTopic", odomTopic, "odometry/imu");
         nh.param<std::string>("lio_sam/gpsTopic", gpsTopic, "odometry/gps");
+
+        //强制跳过检测过程
+        nh.param<bool>("lio_sam/has_ring", has_ring, true);
+        //计算ring用到的数据 需要修改意义：
+        nh.param<float>("lio_sam/ang_bottom", ang_bottom, 15.0);
+        nh.param<float>("lio_sam/ang_res_y", ang_res_y, 1.0);
 
         nh.param<std::string>("lio_sam/lidarFrame", lidarFrame, "base_link");
         nh.param<std::string>("lio_sam/baselinkFrame", baselinkFrame, "base_link");
@@ -216,6 +228,9 @@ public:
         nh.param<float>("lio_sam/surfThreshold", surfThreshold, 0.1);
         nh.param<int>("lio_sam/edgeFeatureMinValidNum", edgeFeatureMinValidNum, 10);
         nh.param<int>("lio_sam/surfFeatureMinValidNum", surfFeatureMinValidNum, 100);
+        nh.param<int>("lio_sam/surfPickedThreshold", surfPickedThreshold, 8);
+        nh.param<int>("lio_sam/cornerPickedThreshold", cornerPickedThreshold, 8);
+
 
         nh.param<float>("lio_sam/odometrySurfLeafSize", odometrySurfLeafSize, 0.2);
         nh.param<float>("lio_sam/mappingCornerLeafSize", mappingCornerLeafSize, 0.2);

@@ -489,25 +489,6 @@ public:
         prevState_ = gtsam::NavState(prevPose_, prevVel_);
         // 更新当前帧imu偏置
         prevBias_  = result.at<gtsam::imuBias::ConstantBias>(B(key));
-
-        //todo 记录imu偏置结果 和此时的时间戳 作图对比
-        Eigen::Vector3d accelerometer_bias = prevBias_.accelerometer();
-        Eigen::Vector3d gyroscope_bias = prevBias_.gyroscope();
-        std::ofstream outfile("/home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/imu_bias_plus.txt", std::ios::app);
-        if (outfile.is_open()) {
-            //将偏置写入文件
-            // outfile << "Accelerometer Bias: " << accelerometer_bias.transpose() << std::endl;
-            // outfile << "Gyroscope Bias: " << gyroscope_bias.transpose() << std::endl;
-            outfile << std::fixed << std::setprecision(9) << currentCorrectionTime << ","
-                    << accelerometer_bias.x() << "," << accelerometer_bias.y() << "," << accelerometer_bias.z() << ","
-                    << gyroscope_bias.x() << "," << gyroscope_bias.y() << "," << gyroscope_bias.z() << std::endl;
-            //关闭文件
-            outfile.close();
-            std::cout << "Bias values have been written to imu_bias.txt" << std::endl;
-        } else {
-            std::cerr << "Unable to open file for writing" <<std::endl;
-        }
-
         // 重置预积分器，设置新的偏置，这样下一帧激光里程计进来的时候，预积分量就是两帧之间的增量
         imuIntegratorOpt_->resetIntegrationAndSetBias(prevBias_);
 
@@ -587,11 +568,6 @@ public:
         sensor_msgs::Imu thisImu = imuConverter(*imu_raw);
 
         // 添加当前帧imu数据到队列
-        //todo test 给零偏加固定偏移
-        thisImu.angular_velocity.x += 3;
-        thisImu.angular_velocity.y += 3;
-        thisImu.angular_velocity.z += 3;
-
         imuQueOpt.push_back(thisImu);
         imuQueImu.push_back(thisImu);
 

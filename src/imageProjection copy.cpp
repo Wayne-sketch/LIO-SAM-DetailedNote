@@ -213,24 +213,8 @@ public:
 
         // 上锁，添加数据的时候队列不可用
         std::lock_guard<std::mutex> lock1(imuLock);
-        //todo test 给零偏加固定偏移
-        thisImu.angular_velocity.x += 3;
-        thisImu.angular_velocity.y += 3;
-        thisImu.angular_velocity.z += 3;
-
         imuQueue.push_back(thisImu);
-        
-        // // 发布tf，map与odom系设为同一个系
-        // static tf::TransformBroadcaster tfMap2Odom;
-        // static tf::Transform map_to_odom = tf::Transform(tf::createQuaternionFromRPY(0, 0, 0), tf::Vector3(0, 0, 0));
-        // tfMap2Odom.sendTransform(tf::StampedTransform(map_to_odom, odomMsg->header.stamp, mapFrame, odometryFrame));
 
-        // // 发布tf，当前时刻odom与baselink系变换关系
-        // static tf::TransformBroadcaster tfOdom2BaseLink;
-        // tf::Transform tCur;
-        // tf::poseMsgToTF(laserOdometry.pose.pose, tCur);
-        // tf::StampedTransform odom_2_baselink = tf::StampedTransform(tCur, odomMsg->header.stamp, odometryFrame, baselinkFrame);
-        // tfOdom2BaseLink.sendTransform(odom_2_baselink);
         // debug IMU data
         // cout << std::setprecision(6);
         // cout << "IMU acc: " << endl;

@@ -1,0 +1,3 @@
+evo_ape tum tum_06_gt.txt result06_pose.txt -r trans_part -va --plot --plot_mode xz --save_plot /home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/result06.pdf --save_results /home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/result06.zip
+evo_rpe tum tum_06_gt.txt result06_pose.txt -r trans_part -va --plot --plot_mode xz --save_plot /home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/result06_r.pdf --save_results /home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/result06_r.zip
+

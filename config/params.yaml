@@ -1,10 +1,17 @@
 lio_sam:
 
-  # Topics
-  pointCloudTopic: "points_raw"               # Point cloud data
-  imuTopic: "imu_correct"                     # IMU data
+  # Topics(origin)
+  # pointCloudTopic: "points_raw"               # Point cloud data
+  # imuTopic: "imu_correct"                     # IMU data
   odomTopic: "odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
   gpsTopic: "odometry/gpsz"                   # GPS odometry topic from navsat, see module_navsat.launch file
+
+  # Topics  for processing kitti by author
+  pointCloudTopic: "points_raw"           # Point cloud data/  for kitti  "/kitti/velo/pointcloud"
+  imuTopic: "imu_raw"                         # IMU data/ for kitti  "/kitti/oxts/imu"
+  # Topics for normal kitti
+  # pointCloudTopic: "kitti/velo/pointcloud"           # Point cloud data/  for kitti  "/kitti/velo/pointcloud"
+  # imuTopic: "kitti/oxts/imu"                         # IMU data/ for kitti  "/kitti/oxts/imu"
 
   # Frames
   lidarFrame: "base_link"
@@ -20,15 +27,44 @@ lio_sam:
   
   # Export settings
   savePCD: false                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/Downloads/LOAM/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+  savePCDDirectory: "/home/roma/LIO-SAM-DetailedNote/pcd_data/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+
+  # Sensor Settings(origin)
+  # sensor: velodyne                            # lidar sensor type, either 'velodyne' or 'ouster'
+  # N_SCAN: 16                                  # number of lidar channel (i.e., 16, 32, 64, 128)
+  # Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048)
+  # downsampleRate: 1                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
+  # lidarMinRange: 1.0                          # default: 1.0, minimum lidar range to be used
+  # lidarMaxRange: 1000.0                       # default: 1000.0, maximum lidar range to be used
 
   # Sensor Settings
-  sensor: velodyne                            # lidar sensor type, either 'velodyne' or 'ouster'
-  N_SCAN: 16                                  # number of lidar channel (i.e., 16, 32, 64, 128)
-  Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048)
-  downsampleRate: 1                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
+  sensor: velodyne                            # lidar sensor type, 'velodyne' or 'ouster' or 'livox'
+  N_SCAN: 64                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
+  Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
+  # Horizon_SCAN: 2083                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
+  downsampleRate: 2                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
   lidarMinRange: 1.0                          # default: 1.0, minimum lidar range to be used
   lidarMaxRange: 1000.0                       # default: 1000.0, maximum lidar range to be used
+
+  # Lidar Settings
+  #  特别注意： 如果 sensor: velodyne， useCloudRing 和useCloudTime 都为true!! 如果 sensor: kitti useCloudRing 和useCloudTime 都为false!!
+  # useCloudRing: false
+  # useCloudTime: false
+  # sensor: kitti                              # lidar sensor type, either 'velodyne' or 'ouster' or kitti without ring information
+  # N_SCAN: 64                                  # number of lidar channel (i.e., 16, 32, 64, 128)
+  # Horizon_SCAN: 1800                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048)
+  # downsampleRate: 2                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
+  # lidarMinRange: 1.0                          # default: 1.0, minimum lidar range to be used
+  # lidarMaxRange: 250.0                       # default: 1000.0, maximum lidar range to be used
+  # lidar_has_ring: true
+
+  has_ring: false                              # lidar data format, if lidar driver has ring data publish, set 'ture'
+  ang_bottom: 24.8                             # if 'has_ring' is false, change it
+  ang_res_y: 0.4253968                            # if 'has_ring' is false, change it
+
+  # has_ring: true                              # lidar data format, if lidar driver has ring data publish, set 'ture'
+  # ang_bottom: 15.0                             # if 'has_ring' is false, change it
+  # ang_res_y: 1.0                            # if 'has_ring' is false, change it
 
   # IMU Settings
   imuAccNoise: 3.9939570888238808e-03
@@ -39,25 +75,47 @@ lio_sam:
   imuRPYWeight: 0.01
 
   # Extrinsics (lidar -> IMU)
-  extrinsicTrans: [0.0, 0.0, 0.0]
+  # extrinsicTrans: [0.0, 0.0, 0.0]
   # extrinsicRot: [-1, 0, 0,
   #                 0, 1, 0,
   #                 0, 0, -1]
   # extrinsicRPY: [0,  1, 0,
   #                -1, 0, 0,
   #                 0, 0, 1]
-  extrinsicRot: [1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1]
-  extrinsicRPY: [1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1]
+  # extrinsicRot: [1, 0, 0,
+  #                 0, 1, 0,
+  #                 0, 0, 1]
+  # extrinsicRPY: [1, 0, 0,
+  #                 0, 1, 0,
+  #                 0, 0, 1]
+
+  # Extrinsics (IMU -> lidar)  for kitti
+
+  #lidar2imu平移
+  extrinsicTrans: [-8.086759e-01, 3.195559e-01, -7.997231e-01]
+  #imu2lidar
+  extrinsicRot: [9.999976e-01, 7.553071e-04, -2.035826e-03,
+                   -7.854027e-04, 9.998898e-01, -1.482298e-02,
+                   2.024406e-03, 1.482454e-02, 9.998881e-01]
+  # lidar2imu 这里我觉得应该和上面是转置？还没搞懂
+  # extrinsicRPY: [9.999976e-01, 7.553071e-04, -2.035826e-03,
+  #                  -7.854027e-04, 9.998898e-01, -1.482298e-02,
+  #                  2.024406e-03, 1.482454e-02, 9.998881e-01]
+  extrinsicRPY: [9.999976e-01, -7.854027e-04, 2.024406e-03,
+                   7.553071e-04, 9.998898e-01, 1.482454e-02,
+                   -2.035826e-03, -1.482298e-02, 9.998881e-01]
+  # extrinsicRPY: [7.553071e-04, 9.998898e-01, 1.482454e-02,
+  #                  9.999976e-01, -7.854027e-04, 2.024406e-03,
+  #                  2.035826e-03, 1.482298e-02, -9.998881e-01]
 
   # LOAM feature threshold
-  edgeThreshold: 1.0
-  surfThreshold: 0.1
+  edgeThreshold: 0.1              #balm 0.1   lio-sam 1.0
+  surfThreshold: 0.1              #balm 0.1   lio-sam 0.1
   edgeFeatureMinValidNum: 10
   surfFeatureMinValidNum: 100
+  surfPickedThreshold: 4          #lio-sam none balm 4
+  cornerPickedThreshold: 20        #lio-sam 20   balm 1
+
 
   # voxel filter paprams
   odometrySurfLeafSize: 0.4                     # default: 0.4 - outdoor, 0.2 - indoor
@@ -65,7 +123,7 @@ lio_sam:
   mappingSurfLeafSize: 0.4                      # default: 0.4 - outdoor, 0.2 - indoor
 
   # robot motion constraint (in case you are using a 2D robot)
-  z_tollerance: 1000                            # meters
+  z_tollerance: 10                            # meters
   rotation_tollerance: 1000                     # radians
 
   # CPU Params

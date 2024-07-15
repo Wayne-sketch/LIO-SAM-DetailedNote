@@ -27,3 +27,8 @@ float32 initialGuessYaw
 sensor_msgs/PointCloud2 cloud_deskewed  # original cloud deskewed
 sensor_msgs/PointCloud2 cloud_corner    # extracted corner feature
 sensor_msgs/PointCloud2 cloud_surface   # extracted surface feature
+
+# 为了适配kitti数据集 早期kitti数据集点云没有ring信息和相对时间time信息 需要自己计算
+float32 startOrientation
+float32 endOrientation
+float32 orientationDiff

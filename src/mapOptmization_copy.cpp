@@ -47,17 +47,6 @@ Date: 2021-02-21
 
 #include <gtsam/nonlinear/ISAM2.h>
 
-#include "balmclass.hpp"
-#include <nav_msgs/Odometry.h>
-#include <nav_msgs/Path.h>
-#include <queue>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <visualization_msgs/MarkerArray.h>
-#include <tf/transform_datatypes.h>
-#include <tf/transform_broadcaster.h>
-#include <geometry_msgs/PoseArray.h>
-
 using namespace gtsam;
 
 using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
@@ -93,67 +82,6 @@ class mapOptimization : public ParamServer
 {
 
 public:
-
-    //balm
-    //前3帧不做任何优化 积攒点云 可能前面点云太少没什么意义 也是一种初始化方式
-    int accumulate_window = 1;
-    //10帧以内需要loam scan2map初始化
-    int scan2map_on = 10;
-    int pub_skip = 5;
-    //在世界坐标系下构建体素的体素大小，第一个对应平面特征构建时体素大小，第二个对应线特征构建时体素大小
-    double voxel_size[2] = {1, 1};
-    //自定义的降采样的体素的大小
-    double surf_filter_length = 0.1;
-    double corn_filter_length = 0.0;
-    //滑窗大小 LM_SLWD_VOXEL构造函数需要的参数
-    int window_size = 20;
-    int margi_size = 5;
-    //? 体素滑窗内每个关键帧预留的点数 留空间用
-    int filter_num = 1;
-    //LM滑窗优化器 多线程计算大H矩阵 大J矩阵的线程数 就是分几份同时计算
-    int thread_num = 4;
-    //每隔几帧处理一次关键帧之间的关系
-    // int skip_num = 0;
-    //第一次进循环要处理
-    // int jump_flag = skip_num;
-    //当前帧位姿
-    Eigen::Quaterniond q_curr;
-    Eigen::Vector3d t_curr;
-    //LM滑窗优化器
-    LM_SLWD_VOXEL opt_lsv;
-    //存边缘点点云
-    pcl::PointCloud<PointTypeXYZIN>::Ptr pl_corn;
-    //存平面点点云
-    pcl::PointCloud<PointTypeXYZIN>::Ptr pl_surf;
-    //存完整点云
-    pcl::PointCloud<PointTypeXYZIN>::Ptr pl_full;
-    //存历史点云
-    vector<pcl::PointCloud<PointTypeXYZIN>::Ptr> pl_full_buf;
-    //记录接收点云帧数 滑窗头的点云帧索引
-    int plcount = 0, window_base = 0;
-    //位姿增量
-    Eigen::Quaterniond delta_q;
-    Eigen::Vector3d delta_t;
-    //平面特征自适应体素地图 线特征自适应体素地图
-    unordered_map<VOXEL_LOC, OCTO_TREE*> surf_map, corn_map;
-    vector<Eigen::Quaterniond> delta_q_buf, q_buf;
-    vector<Eigen::Vector3d> delta_t_buf, t_buf;
-    pcl::PointCloud<PointTypeXYZIN> pl_surf_centor_map, pl_corn_centor_map;
-    pcl::PointCloud<PointTypeXYZIN> pl_corn_fil_map, pl_surf_fil_map;
-    pcl::KdTreeFLANN<PointTypeXYZIN>::Ptr kdtree_surf;
-    pcl::KdTreeFLANN<PointTypeXYZIN>::Ptr kdtree_corn;
-    pcl::PointCloud<PointTypeXYZIN> pl_send;
-    Eigen::Vector3d p_orig, aft_tran, kervec, orient, v_ac;
-    uint a_size;
-    PointTypeXYZIN apy;
-    // PointType apy;
-
-    vector<int> pointSearchInd; vector<float> pointSearchSqDis;
-    double range;
-    Eigen::Matrix4d trans;
-    ros::Time ct;
-    geometry_msgs::PoseArray parray;
-    thread *map_refine_thread;
 
     // gtsam
     NonlinearFactorGraph gtSAMgraph;
@@ -197,8 +125,6 @@ public:
     pcl::PointCloud<PointType>::Ptr copy_cloudKeyPoses3D;
     pcl::PointCloud<PointTypePose>::Ptr copy_cloudKeyPoses6D;
 
-    //当前帧原始点云集合 去畸变
-    pcl::PointCloud<PointType>::Ptr laserCloudFullLast; 
     // 当前激光帧角点集合
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast; 
     // 当前激光帧平面点集合
@@ -230,7 +156,6 @@ public:
     pcl::PointCloud<PointType>::Ptr laserCloudCornerFromMapDS;
     // 局部map的平面点集合，降采样
     pcl::PointCloud<PointType>::Ptr laserCloudSurfFromMapDS;
-
 
     // 局部关键帧构建的map点云，对应kdtree，用于scan-to-map找相邻点
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeCornerFromMap;
@@ -284,19 +209,9 @@ public:
     /**
      * 构造函数
     */
-    mapOptimization():opt_lsv(window_size, filter_num, thread_num), pl_corn(new pcl::PointCloud<PointTypeXYZIN>), pl_surf(new pcl::PointCloud<PointTypeXYZIN>), pl_full(new pcl::PointCloud<PointTypeXYZIN>),
-        kdtree_surf(new pcl::KdTreeFLANN<PointTypeXYZIN>()), kdtree_corn(new pcl::KdTreeFLANN<PointTypeXYZIN>())
+    mapOptimization()
     {
-        //balm
-        q_curr = Eigen::Quaterniond(1, 0, 0, 0);
-        t_curr = Eigen::Vector3d(0, 0, 0);
-        delta_q = Eigen::Quaterniond(1, 0, 0, 0);
-        delta_t = Eigen::Vector3d(0, 0, 0);
-        trans = Eigen::Matrix4d::Identity();
-        parray.header.frame_id = "camera_init";
-        map_refine_thread = nullptr;
-
-        // ISAM2参数
+        // ISM2参数
         ISAM2Params parameters;
         parameters.relinearizeThreshold = 0.1;
         parameters.relinearizeSkip = 1;
@@ -346,77 +261,6 @@ public:
     }
 
     /**
-     * @brief 构建哈希表，键是世界系下的体素索引位置，值是八叉树节点指针
-     *        传入一帧原始特征点云 放入哈希表+八叉树的数据结构中
-     * 
-     * @param feat_map 平面特征或线特征哈希表 键是体素位置索引，值是八叉树节点指针
-     * @param pl_feat 原始特征点云
-     * @param R_p 当前关键帧在世界坐标系/第一帧/第一个关键帧下的旋转矩阵
-     * @param t_p 当前关键帧在世界坐标系/第一帧/第一个关键帧下的位移
-     * @param feattype 拟合特征种类，0代表面，1代表线
-     * @param fnum 滑窗中最新关键帧的索引 例如处理第一个关键帧时这个值为0，处理第二个关键帧时这个值为1
-     * @param capacity 设置体素滑窗的大小
-     */
-    void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<PointTypeXYZIN>::Ptr pl_feat, Eigen::Matrix3d R_p, Eigen::Vector3d t_p, int feattype, int fnum, int capacity)
-    {
-    //统计所有点数量
-    uint plsize = pl_feat->size();
-    //遍历每个点
-    for(uint i=0; i<plsize; i++)
-    {
-        //取出点坐标 在当前帧坐标系下表示
-        PointTypeXYZIN &p_c = pl_feat->points[i];
-        Eigen::Vector3d pvec_orig(p_c.x, p_c.y, p_c.z);
-        //计算点在世界坐标系下的坐标
-        Eigen::Vector3d pvec_tran = R_p*pvec_orig + t_p;
-
-        float loc_xyz[3];
-        for(int j=0; j<3; j++)
-        {
-        //计算点在世界坐标系下的体素索引
-        loc_xyz[j] = pvec_tran[j] / voxel_size[feattype];
-        if(loc_xyz[j] < 0)
-        {
-            loc_xyz[j] -= 1.0;
-        }
-        }
-
-        //用计算出的体素索引构建哈希表的键
-        VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1], (int64_t)loc_xyz[2]);
-        auto iter = feat_map.find(position);
-        //如果该位置索引的体素已经构建，
-        if(iter != feat_map.end())
-        {
-        //点在当前帧坐标系下的坐标放入体素中 fnum是当前关键帧的索引
-        iter->second->plvec_orig[fnum]->push_back(pvec_orig);
-        //点在世界坐标系下的坐标放入体素中 fnum是当前关键帧的索引
-        iter->second->plvec_tran[fnum]->push_back(pvec_tran);
-        //此处为体素中添加了新的点，所以设置为待拟合
-        iter->second->is2opt = true;
-        }
-        //如果该位置索引体素还没有构建
-        else
-        {
-        //新建八叉树节点
-        OCTO_TREE *ot = new OCTO_TREE(feattype, capacity);
-        //存储中心点在当前帧坐标系下的坐标 fnum是当前关键帧的索引
-        ot->plvec_orig[fnum]->push_back(pvec_orig);
-        //存储中心点在世界坐标系下的坐标 fnum是当前关键帧的索引
-        ot->plvec_tran[fnum]->push_back(pvec_tran);
-
-        //第一次新建八叉树节点 记录该体素中心点在世界坐标系下的位置 0.5是为了取到体素的中心点
-        ot->voxel_center[0] = (0.5+position.x) * voxel_size[feattype];
-        ot->voxel_center[1] = (0.5+position.y) * voxel_size[feattype];
-        ot->voxel_center[2] = (0.5+position.z) * voxel_size[feattype];
-        //记录体素大小的1/4长度
-        ot->quater_length = voxel_size[feattype] / 4.0;
-        //放入哈希表
-        feat_map[position] = ot;
-        }
-    }
-    }
-
-    /**
      * 初始化
     */
     void allocateMemory()
@@ -429,7 +273,6 @@ public:
         kdtreeSurroundingKeyPoses.reset(new pcl::KdTreeFLANN<PointType>());
         kdtreeHistoryKeyPoses.reset(new pcl::KdTreeFLANN<PointType>());
 
-        laserCloudFullLast.reset(new pcl::PointCloud<PointType>());
         laserCloudCornerLast.reset(new pcl::PointCloud<PointType>()); // corner feature set from odoOptimization
         laserCloudSurfLast.reset(new pcl::PointCloud<PointType>()); // surf feature set from odoOptimization
         laserCloudCornerLastDS.reset(new pcl::PointCloud<PointType>()); // downsampled corner featuer set from odoOptimization
@@ -461,619 +304,6 @@ public:
         }
 
         matP = cv::Mat(6, 6, CV_32F, cv::Scalar::all(0));
-    }
-
-
-    /**
-     * @brief scan2map 滑窗算法
-     * 
-     */
-    void scan2MapBalmOptimization() {
-        // 要求有关键帧
-        if (cloudKeyPoses3D->points.empty())
-            return;
-
-        //当前帧点云取出来
-        // ptypeXYZI2ptypeXYZIN(*laserCloudSurfLastDS, *pl_surf);
-        // ptypeXYZI2ptypeXYZIN(*laserCloudCornerLastDS, *pl_corn);
-        //当前帧位姿取出来 这里用自定义点云中的初始位姿 transformTobeMapped此时已经初始化了
-        //transformTobeMapped[0][1][2]对应roll pitch yaw
-        ROS_INFO("Before optimization TransformTobeMapped: roll:%f, pitch:%f, yaw:%f, x:%f, y:%f, z:%f",
-                    transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2],
-                    transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);
-        //当前帧初始位姿
-        transformTobeMappedToQuaternionAndVector(transformTobeMapped, q_curr, t_curr);
-
-        //滑窗优化结束
-        if(opt_lsv.read_refine_state() == 2)
-        {
-            // nav_msgs::Odometry laser_odom;
-            // laser_odom.header.frame_id = "camera_init";
-            // //时间戳赋值
-            // laser_odom.header.stamp = timeLaserInfoStamp;
-
-            // Publish points whose pose is fixed
-            // 把将要边缘化出去的帧内点云发布出去 因为边缘化掉的帧内点云不再改变
-            // pl_send.clear();
-            // for(int i=0; i<margi_size; i+=pub_skip)
-            // {
-            //     trans.block<3, 3>(0, 0) = opt_lsv.so3_poses[i].matrix();
-            //     trans.block<3, 1>(0, 3) = opt_lsv.t_poses[i];
-            //     pcl::PointCloud<PointTypeXYZIN> pcloud;
-            //     pcl::transformPointCloud(*pl_full_buf[window_base + i], pcloud, trans);
-                
-            //     pl_send += pcloud;
-            // }
-            // pub_func(pl_send, pub_full, ct);
-
-            //删除掉要边缘化掉的帧
-            for(int i=0; i<margi_size; i++)
-            {
-                pl_full_buf[window_base + i] = nullptr;
-            }
-
-            //存储当前滑窗内每个帧的优化位姿
-            for(int i=0; i<window_size; i++)
-            {
-                q_buf[window_base+i] = opt_lsv.so3_poses[i].unit_quaternion();
-                t_buf[window_base+i] = opt_lsv.t_poses[i];
-            }
-
-            // for(int i=window_base+window_size; i<plcount; i++)
-            // {
-            //   t_buf[i] = t_buf[i-1] + q_buf[i-1] * delta_t_buf[i];
-            //   q_buf[i] = q_buf[i-1] * delta_q_buf[i];
-            // }
-
-            // Publish poses
-            //当前滑窗内优化位姿存到轨迹中发布
-            // for(int i=window_base; i<plcount; i++)
-            // {
-            //     parray.poses[i].orientation.w = q_buf[i].w();
-            //     parray.poses[i].orientation.x = q_buf[i].x();
-            //     parray.poses[i].orientation.y = q_buf[i].y();
-            //     parray.poses[i].orientation.z = q_buf[i].z();
-            //     parray.poses[i].position.x = t_buf[i].x();
-            //     parray.poses[i].position.x = t_buf[i].x();
-            //     parray.poses[i].position.x = t_buf[i].x();
-            // }
-            // pub_pose.publish(parray);
-        
-            // Marginalization and update voxel map
-            // 做边缘化
-            pl_surf_centor_map.clear(); pl_corn_centor_map.clear();
-            for(auto iter=surf_map.begin(); iter!=surf_map.end(); ++iter)
-            {
-                if(iter->second->is2opt)
-                {
-                    iter->second->root_centors.clear();
-                    iter->second->marginalize(0, margi_size, q_buf, t_buf, window_base, iter->second->root_centors);
-                }
-                pl_surf_centor_map += iter->second->root_centors;
-            }
-
-            for(auto iter=corn_map.begin(); iter!=corn_map.end(); ++iter)
-            {
-                if(iter->second->is2opt)
-                {
-                    iter->second->root_centors.clear();
-                    iter->second->marginalize(0, margi_size, q_buf, t_buf, window_base, iter->second->root_centors);
-                }
-                    pl_corn_centor_map += iter->second->root_centors;
-            }
-        
-            // If use multithreading mode, clear memory
-            if(map_refine_thread != nullptr)
-            {
-                delete map_refine_thread;
-                map_refine_thread = nullptr;
-            }
-
-            // window size of every voxel
-            //更新当前滑窗内帧数
-            OCTO_TREE::voxel_windowsize -= margi_size;
-
-            //清空优化器
-            opt_lsv.free_voxel();
-            window_base += margi_size; // as definition of window_base
-            //更新优化器状态
-            opt_lsv.set_refine_state(0);
-        }
-        
-        // if(surf_buf.empty() || corn_buf.empty() || full_buf.empty())
-        // {
-        // continue;
-        // }
-
-        //对齐点云时间戳
-        // mBuf.lock();
-        // uint64_t time_surf = surf_buf.front()->header.stamp.toNSec();
-        // uint64_t time_corn = corn_buf.front()->header.stamp.toNSec();
-        // uint64_t time_full = full_buf.front()->header.stamp.toNSec();
-
-        // if(time_corn != time_surf)
-        // {
-        // time_corn < time_surf ? corn_buf.pop() : surf_buf.pop();
-        // mBuf.unlock();
-        // continue;
-        // }
-        // if(time_corn != time_full)
-        // {
-        // time_corn < time_full ? corn_buf.pop() : full_buf.pop();
-        // mBuf.unlock();
-        // continue;
-        // }
-        
-        // pcl::PointCloud<PointType>::Ptr pl_full(new pcl::PointCloud<PointType>);
-
-        //当前帧点云时间戳
-        // ct = full_buf.front()->header.stamp;
-
-        // Convert PointCloud2 to PointType(PointXYZINormal)
-        //取出三种点云
-        // rosmsg2ptype(*surf_buf.front(), *pl_surf);
-        // rosmsg2ptype(*corn_buf.front(), *pl_corn);
-        // rosmsg2ptype(*full_buf.front(), *pl_full);
-        // ptypeXYZI2ptypeXYZIN(*laserCloudSurfLastDS, *pl_surf);
-        ptypeXYZI2ptypeXYZIN(*laserCloudSurfLast, *pl_surf);
-        // int a = laserCloudSurfLastDS -> size();
-        // ROS_INFO("laserCloudSurfLastDS: %d", a);
-        int a = laserCloudSurfLast -> size();
-        ROS_INFO("laserCloudSurfLast: %d", a);
-        // ptypeXYZI2ptypeXYZIN(*laserCloudCornerLastDS, *pl_corn);
-        ptypeXYZI2ptypeXYZIN(*laserCloudCornerLast, *pl_corn);
-        // int b = laserCloudCornerLastDS -> size();
-        // ROS_INFO("laserCloudCornerLastDS: %d", b);
-        int b = laserCloudCornerLast -> size();
-        ROS_INFO("laserCloudCornerLast: %d", b);
-        ptypeXYZI2ptypeXYZIN(*laserCloudFullLast, *pl_full);
-        int c = laserCloudFullLast -> size();
-        ROS_INFO("laserCloudFullLast: %d", c);
-
-        // corn_buf.pop(); surf_buf.pop(); full_buf.pop();
-
-        if(pl_full->size() < 5000)
-        {
-            // mBuf.unlock();
-            return ;
-        }
-
-        pl_full_buf.push_back(pl_full);
-        // mBuf.unlock();
-        plcount++;
-        // The number of scans in the sliding window
-        //更新滑窗内帧数
-        OCTO_TREE::voxel_windowsize = plcount - window_base;
-        // Down sampling like PCL voxelgrid filter
-        //边缘点降采样
-        down_sampling_voxel(*pl_corn, corn_filter_length);
-        
-        // double time_scan2map = ros::Time::now().toSec();
-        // Scan2map module
-        //滑窗内大于3帧时
-        if(plcount > accumulate_window)
-        {
-            //平面点降采样
-            down_sampling_voxel(*pl_surf, surf_filter_length);
-
-            // The new scan2map method needs several scans to initialize for Velodyne lidar
-            // 10帧以内需要初始化
-            if(plcount <= scan2map_on)
-            {
-                // Similar with loam mapping
-                kdtree_surf->setInputCloud(pl_surf_fil_map.makeShared());
-                kdtree_corn->setInputCloud(pl_corn_fil_map.makeShared());
-            }
-            else
-            {
-                // The new scan2map
-                kdtree_surf->setInputCloud(pl_surf_centor_map.makeShared());
-                kdtree_corn->setInputCloud(pl_corn_centor_map.makeShared());
-            }
-
-            // kdtree_surf->setInputCloud(laserCloudSurfFromMapDS);
-            // kdtree_corn->setInputCloud(laserCloudCornerFromMapDS);
-            
-            
-            // Two-step method
-            for(int itercount=0; itercount<2; itercount++)
-            {
-                // LM optimizer for scan2map
-                //loam scan2map优化器
-                VOXEL_DISTANCE sld;
-                sld.so3_pose.setQuaternion(q_curr);
-                sld.t_pose = t_curr;
-
-                //点面约束
-                a_size = pl_surf->size(); 
-                // ROS_INFO("surf point size: %d", a_size);
-                //10帧以内需要初始化 用loam方法做scan2map
-                if(plcount <= scan2map_on)
-                // if(1)
-                {
-                    // The method is similar with loam mapping.
-                    for(uint i=0; i<a_size; i++)
-                    {
-                        int ns = 5;
-                        p_orig << (*pl_surf)[i].x, (*pl_surf)[i].y, (*pl_surf)[i].z;
-                        aft_tran = q_curr*p_orig + t_curr;
-                        apy.x = aft_tran[0]; apy.y = aft_tran[1]; apy.z = aft_tran[2];
-
-                        //找最近邻5个点
-                        kdtree_surf->nearestKSearch(apy, ns, pointSearchInd, pointSearchSqDis);
-
-                        //todo 可修改参数
-                        if(pointSearchSqDis[ns-1] > 5)
-                        {
-                            continue;
-                        }
-
-                        Eigen::Matrix3d covMat(Eigen::Matrix3d::Zero());
-                        Eigen::Vector3d center(0, 0, 0);
-                        for(int j=0; j<ns; j++)
-                        {
-                            Eigen::Vector3d tvec;
-                            tvec[0] = pl_surf_fil_map[pointSearchInd[j]].x;
-                            tvec[1] = pl_surf_fil_map[pointSearchInd[j]].y;
-                            tvec[2] = pl_surf_fil_map[pointSearchInd[j]].z;
-                            // tvec[0] = (*laserCloudSurfFromMapDS)[pointSearchInd[j]].x;
-                            // tvec[1] = (*laserCloudSurfFromMapDS)[pointSearchInd[j]].y;
-                            // tvec[2] = (*laserCloudSurfFromMapDS)[pointSearchInd[j]].z;
-                            
-                            covMat += tvec * tvec.transpose();
-                            center += tvec;
-                        }
-
-                        center /= ns;
-                        covMat -= ns * center * center.transpose();
-                        covMat /= ns;
-
-                        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
-                        if(saes.eigenvalues()[2] < 25*saes.eigenvalues()[0])
-                        {
-                            continue;
-                        }
-
-                        //中心点
-                        kervec = center;
-                        //法线方向
-                        orient = saes.eigenvectors().col(0);
-
-                        //点到平面距离
-                        range = fabs(orient.dot(aft_tran - kervec));
-                        
-                        if(range > 1)
-                        {
-                        continue;
-                        }
-                        
-                        //参数存起来用于优化
-                        sld.push_surf(p_orig, kervec, orient, (1-0.75*range));
-                    }
-
-                    //点线约束
-                    a_size = pl_corn->size();
-                    for(uint i=0; i<a_size; i++)
-                    {
-                        int ns = 5;
-                        p_orig << (*pl_corn)[i].x, (*pl_corn)[i].y, (*pl_corn)[i].z;
-                        aft_tran = q_curr*p_orig + t_curr;
-
-                        apy.x = aft_tran[0]; apy.y = aft_tran[1]; apy.z = aft_tran[2];
-                        kdtree_corn->nearestKSearch(apy, ns, pointSearchInd, pointSearchSqDis);
-
-                        if((pointSearchSqDis[ns-1]) > 5)
-                        {
-                        continue;
-                        }
-
-                        Eigen::Matrix3d covMat(Eigen::Matrix3d::Zero());
-                        Eigen::Vector3d center(0, 0, 0);
-                        for(int j=0; j<ns; j++)
-                        {
-                            Eigen::Vector3d tvec;
-                            tvec[0] = pl_corn_fil_map[pointSearchInd[j]].x;
-                            tvec[1] = pl_corn_fil_map[pointSearchInd[j]].y;
-                            tvec[2] = pl_corn_fil_map[pointSearchInd[j]].z;
-                            // tvec[0] = (*laserCloudCornerFromMapDS)[pointSearchInd[j]].x;
-                            // tvec[1] = (*laserCloudCornerFromMapDS)[pointSearchInd[j]].y;
-                            // tvec[2] = (*laserCloudCornerFromMapDS)[pointSearchInd[j]].z;
-                            
-                            covMat += tvec * tvec.transpose();
-                            center += tvec;
-                        }
-                        center /= ns;
-                        covMat -= ns * center * center.transpose();
-                        covMat /= ns;
-                        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
-                        if(saes.eigenvalues()[2] < 4*saes.eigenvalues()[1])
-                        {
-                            continue;
-                        }
-
-                        kervec = center;
-                        orient = saes.eigenvectors().col(2);
-                        v_ac = aft_tran - kervec;
-                        range = (v_ac - orient*orient.transpose()*v_ac).norm();
-                        if(range > 1.0)
-                        {
-                            continue;
-                        }
-                        sld.push_line(p_orig, kervec, orient, 0.5*(1-0.75*range));
-                    }
-                }
-                //10帧以后稍有改动
-                else
-                {
-                    // The scan2map method described in the paper.
-                    for(uint i=0; i<a_size; i++)
-                    {
-                        int ns = 5;
-                        p_orig << (*pl_surf)[i].x, (*pl_surf)[i].y, (*pl_surf)[i].z;
-                        aft_tran = q_curr*p_orig + t_curr;
-                        apy.x = aft_tran[0]; apy.y = aft_tran[1]; apy.z = aft_tran[2];
-
-                        kdtree_surf->nearestKSearch(apy, ns, pointSearchInd, pointSearchSqDis);
-                    
-                        if((pointSearchSqDis[0]) > 1.0)
-                        {
-                            continue;
-                        }
-
-                        // Find the nearest plane.
-                        range = 10;
-                        for(int j=0; j<ns; j++)
-                        {
-                            // The point in "pl_surf_centor_map" is defined below. 
-                            PointTypeXYZIN &ay = pl_surf_centor_map[pointSearchInd[j]];
-                            Eigen::Vector3d center(ay.x, ay.y, ay.z);
-                            Eigen::Vector3d direct(ay.normal_x, ay.normal_y, ay.normal_z);
-                            double dista = fabs(direct.dot(aft_tran - center));
-                            if(dista <= range && pointSearchSqDis[j] < 4.0)
-                            {
-                                kervec = center;
-                                orient = direct;
-                                range = dista;
-                            }
-                        }
-
-                        // Push points into optimizer
-                        sld.push_surf(p_orig, kervec, orient, (1-0.75*range));
-                    }
-
-                    // Corn features
-                    a_size = pl_corn->size();
-                    for(uint i=0; i<a_size; i++)
-                    {
-                        int ns = 3;
-                        p_orig << (*pl_corn)[i].x, (*pl_corn)[i].y, (*pl_corn)[i].z;
-                        aft_tran = q_curr*p_orig + t_curr;
-                        apy.x = aft_tran[0]; apy.y = aft_tran[1]; apy.z = aft_tran[2];
-
-                        kdtree_corn->nearestKSearch(apy, ns, pointSearchInd, pointSearchSqDis);
-                        if((pointSearchSqDis[0]) > 1)
-                        {
-                            continue;
-                        }
-
-                        range = 10;
-                        double dis_record = 10;
-                        for(int j=0; j<ns; j++)
-                        {
-                            PointTypeXYZIN &ay = pl_corn_centor_map[pointSearchInd[j]];
-                            Eigen::Vector3d center(ay.x, ay.y, ay.z);
-                            Eigen::Vector3d direct(ay.normal_x, ay.normal_y, ay.normal_z);
-                            v_ac = aft_tran - center;
-                            double dista = (v_ac - direct*direct.transpose()*v_ac).norm();
-                            if(dista <= range)
-                            {
-                                kervec = center;
-                                orient = direct;
-                                range = dista;
-                                dis_record = pointSearchSqDis[j];
-                            }
-                        }
-
-                        if(range < 0.2 && sqrt(dis_record) < 1)
-                        {
-                            sld.push_line(p_orig, kervec, orient, (1-0.75*range));
-                        }
-                    }
-                }   
-
-                // loam scan2map
-                sld.damping_iter();
-                q_curr = sld.so3_pose.unit_quaternion();
-                t_curr = sld.t_pose;
-            }
-        }
-
-        // time_scan2map = ros::Time::now().toSec() - time_scan2map;
-        // printf("Scan2map time: %lfs\n", ros::Time::now().toSec()-time_scan2map);
-
-        // 10帧以内
-        if(plcount <= scan2map_on)
-        {
-            //当前帧位姿
-            trans.block<3, 3>(0, 0) = q_curr.matrix();
-            trans.block<3, 1>(0, 3) = t_curr;
-
-            //存边缘点和平面点 降采样
-            pcl::transformPointCloud(*pl_surf, pl_send, trans);
-            pl_surf_fil_map += pl_send;
-            pcl::transformPointCloud(*pl_corn, pl_send, trans);
-            pl_corn_fil_map += pl_send;
-            down_sampling_voxel(pl_surf_fil_map, 0.2);
-            down_sampling_voxel(pl_corn_fil_map, 0.2);
-        }
-        
-        // Put new pose into posearray which will be further modified
-        // parray.header.stamp = timeLaserInfoStamp;
-        // geometry_msgs::Pose apose;
-        // apose.orientation.w = q_curr.w();
-        // apose.orientation.x = q_curr.x();
-        // apose.orientation.y = q_curr.y();
-        // apose.orientation.z = q_curr.z();
-        // apose.position.x = t_curr.x();
-        // apose.position.y = t_curr.y();
-        // apose.position.z = t_curr.z();
-        // parray.poses.push_back(apose);
-        // pub_pose.publish(parray);
-
-        // Use "rostopic echo" to check the odometry
-        // nav_msgs::Odometry laser_odom;
-        // laser_odom.header.frame_id = "camera_init";
-        // laser_odom.header.stamp = timeLaserInfoStamp;
-        // laser_odom.pose.pose.orientation.x = q_curr.x();
-        // laser_odom.pose.pose.orientation.y = q_curr.y();
-        // laser_odom.pose.pose.orientation.z = q_curr.z();
-        // laser_odom.pose.pose.orientation.w = q_curr.w();
-        // laser_odom.pose.pose.position.x = t_curr.x();
-        // laser_odom.pose.pose.position.y = t_curr.y();
-        // laser_odom.pose.pose.position.z = t_curr.z();
-        // pub_odom.publish(laser_odom);
-
-        // static tf::TransformBroadcaster br;
-        // tf::Transform transform;
-        // tf::Quaternion q;
-        // transform.setOrigin(tf::Vector3(t_curr.x(), t_curr.y(), t_curr.z()));
-        // q.setW(q_curr.w());
-        // q.setX(q_curr.x());
-        // q.setY(q_curr.y());
-        // q.setZ(q_curr.z());
-        // transform.setRotation(q);
-        // br.sendTransform(tf::StampedTransform(transform, laser_odom.header.stamp, "/camera_init", "/aft_mapped"));
-        
-        // trans.block<3, 3>(0, 0) = q_curr.matrix();
-        // trans.block<3, 1>(0, 3) = t_curr;
-        // pcl::transformPointCloud(*pl_full, pl_send, trans);
-        // pub_func(pl_send, pub_test, ct);
-        
-        // Get the variation of pose
-        //位姿增量
-        if(plcount > 1)
-        {
-            delta_t = q_buf[plcount-2].matrix().transpose() * (t_curr-t_buf[plcount-2]);
-            delta_q = q_buf[plcount-2].matrix().transpose() * q_curr.matrix();
-        }
-    
-        //存当前位姿
-        q_buf.push_back(q_curr);
-        t_buf.push_back(t_curr);
-        //存位姿增量
-        delta_q_buf.push_back(delta_q);
-        delta_t_buf.push_back(delta_t);
-        
-        // For multiple thread, if computer runs slow, the memory may be out of range.
-        // 10 is decided in "cut_voxel"
-        if(plcount-window_base-window_size > 10)
-        {
-            printf("Out of size\n");
-            exit(0);
-        }
-
-        // Put current feature points into root voxel node
-        //把当前帧边缘点 平面点放入体素地图
-        cut_voxel(surf_map, pl_surf, q_curr.matrix(), t_curr, 0, plcount-1-window_base, window_size+10);
-        cut_voxel(corn_map, pl_corn, q_curr.matrix(), t_curr, 1, plcount-1-window_base, window_size+10);
-        
-        // The center point of surf points and corn points
-        // The normal_x(yz) in each point is normal vector for plane
-        // or direction vector for line.
-        pl_surf_centor_map.clear(); pl_corn_centor_map.clear();
-        
-        // Points in new scan have been distributed in corresponding root node voxel
-        // Then continue to cut the root voxel until right size
-        for(auto iter=surf_map.begin(); iter!=surf_map.end(); ++iter)
-        {
-            if(iter->second->is2opt) // Sliding window of root voxel should have points
-            {
-                iter->second->root_centors.clear();
-                iter->second->recut(0, plcount-1-window_base, iter->second->root_centors);
-            }
-
-            // Add up surf centor points.
-            //只存体素中心点
-            pl_surf_centor_map += iter->second->root_centors;
-            // You can add some distance restrictions in case that pl_surf_centor_map is too large.
-            // You can also push points in root voxel into kdtree (loam mapping)
-            // You can use "surf_map.erase(iter++)" to erase voxel for saving memory
-        }
-
-        for(auto iter=corn_map.begin(); iter!=corn_map.end(); ++iter)
-        {
-            if(iter->second->is2opt)
-            {
-                iter->second->root_centors.clear();
-                iter->second->recut(0, plcount-1-window_base, iter->second->root_centors);
-            }
-            pl_corn_centor_map += iter->second->root_centors;
-        }
-        
-        // Begin map refine module
-        // 滑窗满时才进行滑窗优化
-        if(plcount>=window_base+window_size && opt_lsv.read_refine_state()==0)
-        {
-            //位姿初始化
-            for(int i=0; i<window_size; i++)
-            {
-                opt_lsv.so3_poses[i].setQuaternion(q_buf[window_base + i]);
-                opt_lsv.t_poses[i] = t_buf[window_base + i];
-            }
-
-            // Do not optimize first sliding window 
-            // 第一帧不初始化 直接跳过
-            if(window_base == 0)
-            {
-                opt_lsv.set_refine_state(2);
-            }
-            else
-            {
-                // Push voxel map into optimizer
-                for(auto iter=surf_map.begin(); iter!=surf_map.end(); ++iter)
-                {
-                    if(iter->second->is2opt)
-                    {
-                        iter->second->traversal_opt(opt_lsv);
-                    }
-                }
-
-                for(auto iter=corn_map.begin(); iter!=corn_map.end(); ++iter)
-                {
-                    if(iter->second->is2opt)
-                    {
-                        iter->second->traversal_opt(opt_lsv);
-                    }
-                }
-                
-                // Begin iterative optimization
-                // You can use multithreading or not.
-                // We do not recommend use multiple thread on computer with poor performance
-
-                // multithreading
-                // map_refine_thread = new thread(&LM_SLWD_VOXEL::damping_iter, &opt_lsv);
-                // map_refine_thread->detach();
-                
-                // non multithreading
-                opt_lsv.damping_iter();
-            }
-        }
-        // pose prediction
-        t_curr = t_curr + q_curr * delta_t;
-        q_curr = q_curr * delta_q;
-
-        //todo tranformTobeMapped要用优化后的当前帧位姿
-        //提取出优化后的位姿存入tranformTobeMapped
-        // Eigen::Quaterniond q_curr_temp = opt_lsv.so3_poses[window_size - 1].unit_quaternion();
-        // Eigen::Vector3d t_curr_temp = opt_lsv.t_poses[window_size - 1];
-        // quaternionAndVectorToTransformTobeMapped(q_curr_temp, t_curr_temp, transformTobeMapped);
-        quaternionAndVectorToTransformTobeMapped(q_curr, t_curr, transformTobeMapped);
-
-        transformUpdate();
-        incrementalOdometryAffineBack = trans2Affine3f(transformTobeMapped);
-        ROS_INFO("After optimization TransformTobeMapped: roll:%f, pitch:%f, yaw:%f, x:%f, y:%f, z:%f",
-        transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2],
-        transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);
     }
 
     /**
@@ -1117,7 +347,6 @@ public:
         cloudInfo = *msgIn;
         pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
-        pcl::fromROSMsg(msgIn->cloud_deskewed, *laserCloudFullLast);
 
         std::lock_guard<std::mutex> lock(mtx);
 
@@ -1131,9 +360,7 @@ public:
             // 1、如果是第一帧，用原始imu数据的RPY初始化当前帧位姿（旋转部分）
             // 2、后续帧，用imu里程计计算两帧之间的增量位姿变换，作用于前一帧的激光位姿，得到当前帧激光位姿
             updateInitialGuess();
-            // ROS_INFO("TransformTobeMapped: roll:%f, pitch:%f, yaw:%f, x:%f, y:%f, z:%f",
-            //         transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2],
-            //         transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);
+
             // 提取局部角点、平面点云集合，加入局部map
             // 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
             // 2、对关键帧集合中的每一帧，提取对应的角点、平面点，加入局部map中
@@ -1155,24 +382,11 @@ public:
             //    4) 对匹配特征点计算Jacobian矩阵，观测值为特征点到直线、平面的距离，构建高斯牛顿方程，迭代优化当前位姿，存transformTobeMapped
             // 3、用imu原始RPY数据与scan-to-map优化后的位姿进行加权融合，更新当前帧位姿的roll、pitch，约束z坐标
             // ros::Time startScan2Map = ros::Time::now();
-            
-            //原版优化位姿输出再送入BALM中
             scan2MapOptimization();
-
             // ros::Time endScan2Map = ros::Time::now();
             // ros::Duration durationScan2Map = endScan2Map - startScan2Map;
             // double durationScan2Map_ms = durationScan2Map.toSec() * 1000;
             // ROS_INFO("scan2map kdtree search time: %.2f ms", durationScan2Map_ms);
-
-            //todo scan2map改为滑窗优化
-            // ros::Time startScan2MapBalm = ros::Time::now();
-            // scan2MapBalmOptimization();
-            // scan2MapBalmOptimization2();
-
-            // ros::Time endScan2MapBalm = ros::Time::now();
-            // ros::Duration durationScan2MapBalm = endScan2MapBalm - startScan2MapBalm;
-            // double durationScan2MapBalm_ms = durationScan2MapBalm.toSec() * 1000;
-            // ROS_INFO("scan2map balm time: %.2f ms", durationScan2MapBalm_ms);
 
             // 设置当前帧为关键帧并执行因子图优化
             // 1、计算当前帧与前一帧位姿变换，如果变化太小，不设为关键帧，反之设为关键帧
@@ -1983,12 +1197,12 @@ public:
         if (cloudKeyPoses3D->points.empty() == true)
             return; 
         
-        if (loopClosureEnableFlag == true)
-        {
-            extractForLoopClosure();    
-        } else {
-            extractNearby();
-        }
+        // if (loopClosureEnableFlag == true)
+        // {
+        //     extractForLoopClosure();    
+        // } else {
+        //     extractNearby();
+        // }
 
         // 提取局部角点、平面点云集合，加入局部map
         // 1、对最近的一帧关键帧，搜索时空维度上相邻的关键帧集合，降采样一下
@@ -2440,81 +1654,22 @@ public:
                 // 当前激光帧角点寻找局部map匹配点
                 // 1、更新当前帧位姿，将当前帧角点坐标变换到map系下，在局部map中查找5个最近点，距离小于1m，且5个点构成直线（用距离中心点的协方差矩阵，特征值进行判断），则认为匹配上了
                 // 2、计算当前帧角点到直线的距离、垂线的单位向量，存储为角点参数
-                // ros::Time startCornerKdtreeSearch = ros::Time::now();
+                ros::Time startCornerKdtreeSearch = ros::Time::now();
                 cornerOptimization();
-                // ros::Time endCornerKdtreeSearch = ros::Time::now();
-                // ros::Duration durationCornerKdtreeSearch = endCornerKdtreeSearch - startCornerKdtreeSearch;
-                // double durationCornerKdtreeSearch_ms = durationCornerKdtreeSearch.toSec() * 1000;
-                // ROS_INFO("corner kdtree search time: %.2f ms", durationCornerKdtreeSearch_ms);
+                ros::Time endCornerKdtreeSearch = ros::Time::now();
+                ros::Duration durationCornerKdtreeSearch = endCornerKdtreeSearch - startCornerKdtreeSearch;
+                double durationCornerKdtreeSearch_ms = durationCornerKdtreeSearch.toSec() * 1000;
+                ROS_INFO("corner kdtree search time: %.2f ms", durationCornerKdtreeSearch_ms);
 
                 // 当前激光帧平面点寻找局部map匹配点
                 // 1、更新当前帧位姿，将当前帧平面点坐标变换到map系下，在局部map中查找5个最近点，距离小于1m，且5个点构成平面（最小二乘拟合平面），则认为匹配上了
                 // 2、计算当前帧平面点到平面的距离、垂线的单位向量，存储为平面点参数
-                // ros::Time startSurfKdtreeSearch = ros::Time::now();
+                ros::Time startSurfKdtreeSearch = ros::Time::now();
                 surfOptimization();
-                // ros::Time endSurfKdtreeSearch = ros::Time::now();
-                // ros::Duration durationSurfKdtreeSearch = endSurfKdtreeSearch - startSurfKdtreeSearch;
-                // double durationSurfKdtreeSearch_ms = durationSurfKdtreeSearch.toSec() * 1000;
-                // ROS_INFO("surf kdtree search time: %.2f ms", durationSurfKdtreeSearch_ms);
-
-                // 提取当前帧中与局部map匹配上了的角点、平面点，加入同一集合
-                combineOptimizationCoeffs();
-
-                // scan-to-map优化
-                // 对匹配特征点计算Jacobian矩阵，观测值为特征点到直线、平面的距离，构建高斯牛顿方程，迭代优化当前位姿，存transformTobeMapped
-                if (LMOptimization(iterCount) == true)
-                    break;              
-            }
-            // 用imu原始RPY数据与scan-to-map优化后的位姿进行加权融合，更新当前帧位姿的roll、pitch，约束z坐标
-            transformUpdate();
-        } else {
-            ROS_WARN("Not enough features! Only %d edge and %d planar features available.", laserCloudCornerLastDSNum, laserCloudSurfLastDSNum);
-        }
-    }
-
-    /**
-     * @brief balm改进2
-     * 
-     */
-    void scan2MapBalmOptimization2()
-    {
-        // 要求有关键帧
-        if (cloudKeyPoses3D->points.empty())
-            return;
-
-        // 当前激光帧的角点、平面点数量足够多
-        if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && laserCloudSurfLastDSNum > surfFeatureMinValidNum)
-        {
-            // kdtree输入为局部map点云
-            kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
-            kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
-
-            // 迭代30次
-            for (int iterCount = 0; iterCount < 30; iterCount++)
-            {
-                // 每次迭代清空特征点集合
-                laserCloudOri->clear();
-                coeffSel->clear();
-
-                // 当前激光帧角点寻找局部map匹配点
-                // 1、更新当前帧位姿，将当前帧角点坐标变换到map系下，在局部map中查找5个最近点，距离小于1m，且5个点构成直线（用距离中心点的协方差矩阵，特征值进行判断），则认为匹配上了
-                // 2、计算当前帧角点到直线的距离、垂线的单位向量，存储为角点参数
-                // ros::Time startCornerKdtreeSearch = ros::Time::now();
-                cornerOptimization();
-                // ros::Time endCornerKdtreeSearch = ros::Time::now();
-                // ros::Duration durationCornerKdtreeSearch = endCornerKdtreeSearch - startCornerKdtreeSearch;
-                // double durationCornerKdtreeSearch_ms = durationCornerKdtreeSearch.toSec() * 1000;
-                // ROS_INFO("corner kdtree search time: %.2f ms", durationCornerKdtreeSearch_ms);
-
-                // 当前激光帧平面点寻找局部map匹配点
-                // 1、更新当前帧位姿，将当前帧平面点坐标变换到map系下，在局部map中查找5个最近点，距离小于1m，且5个点构成平面（最小二乘拟合平面），则认为匹配上了
-                // 2、计算当前帧平面点到平面的距离、垂线的单位向量，存储为平面点参数
-                // ros::Time startSurfKdtreeSearch = ros::Time::now();
-                surfOptimization();
-                // ros::Time endSurfKdtreeSearch = ros::Time::now();
-                // ros::Duration durationSurfKdtreeSearch = endSurfKdtreeSearch - startSurfKdtreeSearch;
-                // double durationSurfKdtreeSearch_ms = durationSurfKdtreeSearch.toSec() * 1000;
-                // ROS_INFO("surf kdtree search time: %.2f ms", durationSurfKdtreeSearch_ms);
+                ros::Time endSurfKdtreeSearch = ros::Time::now();
+                ros::Duration durationSurfKdtreeSearch = endSurfKdtreeSearch - startSurfKdtreeSearch;
+                double durationSurfKdtreeSearch_ms = durationSurfKdtreeSearch.toSec() * 1000;
+                ROS_INFO("surf kdtree search time: %.2f ms", durationSurfKdtreeSearch_ms);
 
                 // 提取当前帧中与局部map匹配上了的角点、平面点，加入同一集合
                 combineOptimizationCoeffs();
@@ -2618,13 +1773,13 @@ public:
         if (cloudKeyPoses3D->points.empty())
         {
             // 第一帧初始化先验因子
-            noiseModel::Diagonal::shared_ptr priorNoise = noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
+            noiseModel::Diagonal::shared_ptr priorNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
             gtSAMgraph.add(PriorFactor<Pose3>(0, trans2gtsamPose(transformTobeMapped), priorNoise));
             // 变量节点设置初始值
             initialEstimate.insert(0, trans2gtsamPose(transformTobeMapped));
         }else{
             // 添加激光里程计因子
-            noiseModel::Diagonal::shared_ptr odometryNoise = noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
+            noiseModel::Diagonal::shared_ptr odometryNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
             gtsam::Pose3 poseFrom = pclPointTogtsamPose3(cloudKeyPoses6D->points.back());
             gtsam::Pose3 poseTo   = trans2gtsamPose(transformTobeMapped);
             // 参数：前一帧id，当前帧id，前一帧与当前帧的位姿变换（作为观测值），噪声协方差
@@ -2907,9 +2062,6 @@ public:
     */
     void publishOdometry()
     {
-        // ROS_INFO("TransformTobeMapped: roll:%f, pitch:%f, yaw:%f, x:%f, y:%f, z:%f",
-        // transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2],
-        // transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5]);
         // 发布激光里程计，odom等价map
         nav_msgs::Odometry laserOdometryROS;
         laserOdometryROS.header.stamp = timeLaserInfoStamp;
@@ -2922,7 +2074,7 @@ public:
         pubLaserOdometryGlobal.publish(laserOdometryROS);
 
         //保存轨迹，path_save是文件目录,txt文件提前建好 tum格式 time x y z 
-        std::ofstream pose1("/home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/lio_result06_pose.txt", std::ios::app);
+        std::ofstream pose1("/home/roma/LIO-SAM-DetailedNote_ws/src/LIO-SAM-DetailedNote/result/result06_pose.txt", std::ios::app);
         pose1.setf(std::ios::scientific, std::ios::floatfield);
         //kitti数据集转换tum格式的数据是18位
         pose1.precision(9);
