@@ -269,7 +269,8 @@ public:
     /**
      * 构造函数
     */
-    IMUPreintegration()
+   //todo 构造函数原本没有入参
+    IMUPreintegration(const Eigen::Vector3d &acc_bias, const Eigen::Vector3d &gyro_bias) : prevBias_(acc_bias, acc_bias), prevBiasOdom(acc_bias, acc_bias)
     {
         // 订阅imu原始数据，用下面因子图优化的结果，施加两帧之间的imu预计分量，预测每一时刻（imu频率）的imu里程计
         subImu      = nh.subscribe<sensor_msgs::Imu>  (imuTopic,                   2000, &IMUPreintegration::imuHandler,      this, ros::TransportHints().tcpNoDelay());
@@ -512,12 +513,12 @@ public:
         imuIntegratorOpt_->resetIntegrationAndSetBias(prevBias_);
 
         // imu因子图优化结果，速度或者偏置过大，认为失败
-        if (failureDetection(prevVel_, prevBias_))
-        {
-            // 重置参数
-            resetParams();
-            return;
-        }
+        // if (failureDetection(prevVel_, prevBias_))
+        // {
+        //     // 重置参数
+        //     resetParams();
+        //     return;
+        // }
 
 
         // 2. 优化之后，执行重传播；优化更新了imu的偏置，用最新的偏置重新计算当前激光里程计时刻之后的imu预积分，这个预积分用于计算每时刻位姿
@@ -642,8 +643,11 @@ public:
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "roboat_loam");
-    
-    IMUPreintegration ImuP;
+
+    //todo bias_test
+    Eigen::Vector3d initial_accelerometer_bias(0.0, 0.0, 0.0);
+    Eigen::Vector3d initial_gyroscope_bias(3.0, 3.0, 3.0);
+    IMUPreintegration ImuP(initial_accelerometer_bias, initial_gyroscope_bias);
 
     TransformFusion TF;
 
